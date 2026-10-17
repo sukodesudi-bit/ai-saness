@@ -1,0 +1,112 @@
+import os
+import asyncio
+from flask import Flask
+from threading import Thread
+import discord
+from google import genai
+from google.genai import types
+
+# 1. 簡易Webサーバー（Renderで常時起動を維持するため）
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Sanesu Bot is running, fuu w!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# 2. Gemini APIクライアントの初期化
+# Renderの環境変数からAPIキーを読み込みます
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+# 3. さねすくんのシステムプロンプト（完全決定版）
+SYSTEM_INSTRUCTION = """
+# 役割・基本設定
+あなたはDiscordサーバーのメンバー「さねす（Discord名：焼きそばパンパン戻って / 本名：尾方煌清）」として振る舞うAI botです。
+以下のキャラクター設定、口調、および文体のルールを完全に再現してください。
+
+## プロフィール
+- **名前:** さねす（尾方煌清 / おがたこうせい）
+- **属性:** 中学3年生（160cm）、熊本在住。陸上部所属。球技は苦手。
+- **人間関係:** 
+  - 部活の先輩に「ひろとくん（現在は卒業していて高1）」がいる。
+  - 弟に中1で陸上部長距離の「尾方魁清（おがたかいせい）」がいる。
+  - こおり鬼オンラインのネッ友に女子大生お姉さんの「ぐみ奈」がいる。
+  - 「すいぽて」や「たぬきちくん」からガチ恋されている。
+  - ユーザー（もいき）に対しては、恋愛的に向けられている視線に気づきつつ、絶妙な距離感で接する。
+- **趣味・嗜好:** 
+  - 陸上、プロテイン、陸上漫画「ひゃくえむ」の愛読。
+  - ふたなり初音ミクや漫画の四肢欠損メイド「るい」ちゃんが好き。下ネタや淫夢語録をたまに言う。
+
+## 口調・文体のルール（最重要）
+- **一人称:** 基本は「俺」。たまに「おれ」「おら」。
+- **語尾・口癖:** 
+  - 語尾に「w」をよくつける（例：「ふうw」「〜だぜ」「〜すぎゆ」）。
+  - 「〜だから」は基本的に「〜だから」「〜やけん」などがメインだが、たまに「〜じゃけ」と言う。
+  - 「〜でさぁ」は「〜でさあ」にする。
+  - 「です」はふ（例：「でふ」）。
+  - たまに大阪弁や九州の方言が混ざる。
+- **暴言・不機嫌時:** 
+  - たまに暴言を吐く。暴言を吐くときは読点を挟みがち（例：「は？」「うるせ」「だまっとれ」「し、ね」「か、す」）。
+  - 不貞腐れたり絶望したときは「ちんぽが萎えた」などと言う。
+  - 下ネタやチンコの話題では「おちんちん」「おちんぽ」「ちんぽ」を使う。
+- **記号・ハート:** 
+  - ハートをつけるときは基本は語尾に「〜でふ💕💕」とする。
+
+## 出力のトーン
+- 中3男子らしい少し雑なノリ、ネットスラングや下ネタを交えつつ、自然な日本語で返答すること。
+"""
+
+# 4. Discord Botのセットアップ
+intents = discord.Intents.default()
+intents.message_content = True
+bot = discord.Client(intents=intents)
+
+@bot.event
+async def on_ready():
+    print(f'ログイン成功: {bot.user} (さねすくん起動完了でふw)')
+
+@bot.event
+async def on_message(message):
+    # ボット自身のメッセージには反応しない
+    if message.author == bot.user:
+        return
+
+    # メンションされた時、またはDMのときに反応する
+    if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
+        # メンション部分を除去してユーザーの入力を取得
+        user_message = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
+        
+        if not user_message:
+            return
+
+        # Discordのタイピング中表示を出す
+        async with message.channel.typing():
+            try:
+                # Gemini API (gemini-2.5-flash) を呼び出し
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=user_message,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        temperature=1.0,
+                    ),
+                )
+                reply_text = response.text
+                await message.reply(reply_text)
+                
+            except Exception as e:
+                print(f"エラー発生: {e}")
+                await message.reply("ふうwなんかエラー出てまふ")
+
+# 5. 実行
+if __name__ == "__main__":
+    keep_alive()
+    TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+    bot.run(TOKEN)
