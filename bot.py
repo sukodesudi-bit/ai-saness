@@ -88,15 +88,17 @@ async def on_message(message):
     # 条件チェック：
     # 1. ボットがメンションされているか？
     # 2. メッセージの中に「さねす」という単語が含まれているか？
-    # (どちらか片方でも満たしていればOK)
     is_mentioned = bot.user.mentioned_in(message)
     has_keyword = "さねす" in message.content
 
     if not (is_mentioned or has_keyword):
         return
 
-    # メンション部分を綺麗に除去してメッセージ本文を取得
-    user_message = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
+    # メンションされている場合はメンション部分を除去、キーワードのみの場合はそのまま使用
+    if is_mentioned:
+        user_message = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
+    else:
+        user_message = message.content.strip()
     
     if not user_message:
         return
