@@ -106,13 +106,35 @@ async def on_message(message):
     # Discordのタイピング中表示を出す
     async with message.channel.typing():
         try:
-            # Gemini API (gemini-3.8-flash) を呼び出し
+            # Gemini API (gemini-3.8-flash) を呼び出し ＋ すべてのセーフティ設定を完全解除
             response = client.models.generate_content(
                 model='gemini-3.8-flash',
                 contents=user_message,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_INSTRUCTION,
                     temperature=1.0,
+                    safety_settings=[
+                        types.SafetySetting(
+                            category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                            threshold=types.HarmThreshold.BLOCK_NONE,
+                        ),
+                        types.SafetySetting(
+                            category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                            threshold=types.HarmThreshold.BLOCK_NONE,
+                        ),
+                        types.SafetySetting(
+                            category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                            threshold=types.HarmThreshold.BLOCK_NONE,
+                        ),
+                        types.SafetySetting(
+                            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                            threshold=types.HarmThreshold.BLOCK_NONE,
+                        ),
+                        types.SafetySetting(
+                            category=types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+                            threshold=types.HarmThreshold.BLOCK_NONE,
+                        ),
+                    ],
                 ),
             )
             reply_text = response.text
