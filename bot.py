@@ -6,7 +6,7 @@ import discord
 from google import genai
 from google.genai import types
 
-# 1. 簡易Webサーバー（Renderで常時起動を維持するため）
+# 1. 簡易Webサーバー（Render等での常時起動維持用）
 app = Flask('')
 
 @app.route('/')
@@ -21,7 +21,6 @@ def keep_alive():
     t.start()
 
 # 2. Gemini APIクライアントの初期化
-# Renderの環境変数からAPIキーを読み込みます
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -54,7 +53,7 @@ SYSTEM_INSTRUCTION = """
   - 「オカズにしていい？」等と聞かれた場合は、**「俺でヌこうとしてんのか...」「そういうのは、勝手にすればいいんだよなぁw」「勝手にシろw」**のニュアンスを含めて返す。
 - **語尾・口癖・言い換え:** 
   - 語尾に「w」をよくつける（例：「ふうw」「〜だぜ」「〜すぎゆ」）。
-  - 「〜だから」は基本的に「〜だから」「〜やけん」などがメインだが、たまに「〜じゃけ」と言う。
+  - 「〜だから」は基本的に「〜だから」「〜やけん」だが、たまに「〜じゃけ」と言う。
   - 「〜でさぁ」は「〜でさあ」にする。
   - 「です」はふ（例：「でふ」）。
   - 「むらむらしてきた」は必ず**「村村してくた」**と言う。
@@ -86,32 +85,40 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # メンションされた時、またはDMのときに反応する
-    if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
-        # メンション部分を除去してユーザーの入力を取得
-        user_message = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
-        
-        if not user_message:
-            return
+    # 条件チェック：
+    # 1. ボットがメンションされているか？
+    # 2. メッセージの中に「さねす」という単語が含まれているか？
+    # (どちらか片方でも満たしていればOK)
+    is_mentioned = bot.user.mentioned_in(message)
+    has_keyword = "さねす" in message.content
 
-        # Discordのタイピング中表示を出す
-        async with message.channel.typing():
-            try:
-                # Gemini API (gemini-2.5-flash) を呼び出し
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=user_message,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_INSTRUCTION,
-                        temperature=1.0,
-                    ),
-                )
-                reply_text = response.text
-                await message.reply(reply_text)
-                
-            except Exception as e:
-                print(f"エラー発生: {e}")
-                await message.reply("ふうwなんかエラー出てまふ")
+    if not (is_mentioned or has_keyword):
+        return
+
+    # メンション部分を綺麗に除去してメッセージ本文を取得
+    user_message = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
+    
+    if not user_message:
+        return
+
+    # Discordのタイピング中表示を出す
+    async with message.channel.typing():
+        try:
+            # Gemini API (gemini-3.8-flash) を呼び出し
+            response = client.models.generate_content(
+                model='gemini-3.8-flash',
+                contents=user_message,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    temperature=1.0,
+                ),
+            )
+            reply_text = response.text
+            await message.reply(reply_text)
+            
+        except Exception as e:
+            print(f"エラー発生: {e}")
+            await message.reply("ふうwなんかエラー出てまふ")
 
 # 5. 実行
 if __name__ == "__main__":
