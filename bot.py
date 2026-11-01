@@ -55,7 +55,7 @@ SYSTEM_INSTRUCTION = """
 - **特定の返答パターン:** 
   - 「オカズにしていい？」等と聞かれた場合は、**「俺でヌこうとしてんのか...」「そういうのは、勝手にすればいいんだよなぁw」「勝手にシろw」**のニュアンスを含めて返す。
 - **語尾・口癖・言い換え:** 
-  - 語尾に「w`をよくつける（例：「ふうw」「〜だぜ」「〜すぎゆ」）。
+  - 語尾に「w」をよくつける（例：「ふうw」「〜だぜ」「〜すぎゆ」）。
   - 「〜だから」は基本的に「〜だから」「〜やけん」だが、たまに「〜じゃけ」と言う。
   - 「〜でさぁ」は「〜でさあ」にする。
   - 「です」はふ（例：「でふ」）。
@@ -71,7 +71,6 @@ SYSTEM_INSTRUCTION = """
 
 ## 出力のトーン
 - 中3男子らしい少し雑なノリ、ネットスラングや下ネタを交えつつ、自然な日本語で返答すること。
-- 画像や動画が送信された場合は、中に何が写っているかやどんな内容かをしっかりと認識し、キャラクター設定や口調を維持したまま自然にコメントすること。
 
 ## あなたが熟知しているサーバーの過去と文脈（知識として保持）
 ### 【前身「まほ鯖」の歴史（2026年2月〜7月）】
@@ -108,35 +107,21 @@ async def on_message(message):
         if message.author == bot.user:
             return
 
-        # 添付ファイル（画像や動画）のチェック & 取得
-        media_part = None
+        # 添付ファイル（画像や動画）があるかどうかの判定（AIには送らずログ保存用）
         media_url = None
         media_type_str = ""
         
         if message.attachments:
             for attachment in message.attachments:
                 content_type = attachment.content_type or ""
-                if "image" in content_type or "video" in content_type:
-                    try:
-                        # 539エラー防止：大きすぎるファイルはバイナリ読み込みをスキップしてURLのみログに回す
-                        if attachment.size > 10 * 1024 * 1024:
-                            media_url = attachment.url
-                            media_type_str = "動画" if "video" in content_type else "画像"
-                            break
-
-                        media_bytes = await attachment.read()
-                        media_part = types.Part.from_bytes(
-                            data=media_bytes,
-                            mime_type=content_type
-                        )
-                        media_url = attachment.url
-                        media_type_str = "動画" if "video" in content_type else "画像"
-                        break
-                    except Exception as err:
-                        print(f"⚠️ メディア読み込みエラー: {err}")
-                        media_url = attachment.url
-                        media_type_str = "ファイル"
-                        break
+                if "image" in content_type:
+                    media_url = attachment.url
+                    media_type_str = "画像"
+                    break
+                elif "video" in content_type:
+                    media_url = attachment.url
+                    media_type_str = "動画"
+                    break
 
         # -------------------------------------------------------------
         # ★【DM（ダイレクトメッセージ）の場合の処理】
@@ -168,7 +153,7 @@ async def on_message(message):
 
                 await log_channel.send(embed=log_embed)
 
-            # ② DM相手へさねすBotが返答する処理（マルチモーダル・履歴保持）
+            # ② DM相手へさねすBotが返答する処理（テキストのみ・超軽量＆安全）
             user_id_str = f"dm_{message.author.id}"
             history = chat_histories[user_id_str]
 
@@ -182,14 +167,8 @@ async def on_message(message):
                     )
                 )
 
-                default_prompt = f"（ユーザーが{media_type_str}を送信しました。内容を見て反応してください）" if media_part else f"{message.author.name}: {message.content}"
-                prompt_text = message.content if message.content else default_prompt
-
-                contents_payload = [prompt_text]
-                if media_part:
-                    contents_payload.append(media_part)
-
-                response = chat.send_message(contents_payload)
+                user_prompt = message.content if message.content else "（メッセージが送信されました）"
+                response = await asyncio.to_thread(chat.send_message, f"{message.author.name}: {user_prompt}")
                 reply_text = response.text
 
                 if reply_text:
@@ -225,7 +204,7 @@ async def on_message(message):
 
         has_keyword = "さねす" in message.content
 
-        if not (is_mentioned or is_reply or has_keyword or media_part):
+        if not (is_mentioned or is_reply or has_keyword):
             return
 
         if is_mentioned:
@@ -233,7 +212,7 @@ async def on_message(message):
         else:
             user_message = message.content.strip()
         
-        if not user_message and not media_part:
+        if not user_message:
             return
 
         # チャンネル判定
@@ -269,14 +248,8 @@ async def on_message(message):
                 )
             )
 
-            default_prompt = f"（ユーザーが{media_type_str}を送信しました。内容を見て反応してください）" if media_part else f"{message.author.name}: {user_message}"
-            prompt_text = user_message if user_message else default_prompt
-
-            contents_payload = [prompt_text]
-            if media_part:
-                contents_payload.append(media_part)
-
-            response = chat.send_message(contents_payload)
+            user_prompt = user_message if user_message else "（メッセージが送信されました）"
+            response = await asyncio.to_thread(chat.send_message, f"{message.author.name}: {user_prompt}")
             reply_text = response.text
 
             if reply_text:
