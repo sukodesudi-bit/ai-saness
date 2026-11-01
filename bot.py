@@ -220,8 +220,8 @@ async def on_message(message):
         is_otameshi = (channel_id == OTAMESHI_CHANNEL_ID)
 
         if is_otameshi:
-            # 70%の確率で応答（30%はスルー）
-            if random.random() > 0.70:
+            # 90%の確率で応答（10%はスルー）
+            if random.random() > 0.90:
                 print(f"[お試しチャンネル] 確率抽選によりスルーしました (発言者: {message.author})")
                 return
             
