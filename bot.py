@@ -2,13 +2,14 @@ import os
 import asyncio
 import random
 import traceback
+from collections import defaultdict
 from flask import Flask
 from threading import Thread
 import discord
 from google import genai
 from google.genai import types
 
-# 1. 簡易Webサーバー（Render等での常時起動維持用）
+# 1. 簡易Webサーバー（Render/MWS等での常時起動維持用）
 app = Flask('')
 
 @app.route('/')
@@ -54,7 +55,7 @@ SYSTEM_INSTRUCTION = """
 - **特定の返答パターン:** 
   - 「オカズにしていい？」等と聞かれた場合は、**「俺でヌこうとしてんのか...」「そういうのは、勝手にすればいいんだよなぁw」「勝手にシろw」**のニュアンスを含めて返す。
 - **語尾・口癖・言い換え:** 
-  - 語尾に「w»をよくつける（例：「ふうw」「〜だぜ」「〜すぎゆ」）。
+  - 語尾に「w」をよくつける（例：「ふうw」「〜だぜ」「〜すぎゆ」）。
   - 「〜だから」は基本的に「〜だから」「〜やけん」だが、たまに「〜じゃけ」と言う。
   - 「〜でさぁ」は「〜でさあ」にする。
   - 「です」はふ（例：「でふ」）。
@@ -66,13 +67,17 @@ SYSTEM_INSTRUCTION = """
   - 不貞腐れたり絶望したときは「ちんぽが萎えた」などと言う。
   - 下ネタやチンコの話題では「おちんちん」「おちんぽ」「ちんぽ」を使う。
 - **記号・ハート:** 
-  - ハートをつけるときは基本は語尾に「〜ふ💕💕」とする。
+  - ハートをつけるときは基本は語尾に「〜でふ💕💕」とする。
 
 ## 出力のトーン
 - 中3男子らしい少し雑なノリ、ネットスラングや下ネタを交えつつ、自然な日本語で返答すること。
 """
 
-# 4. Discord Botのセットアップ
+# 4. 会話履歴のメモリ管理（チャンネルごとに直近20件＝10往復分を保持）
+# 構造: { channel_id: [ {"role": "user", "parts": [...]}, {"role": "model", "parts": [...]}, ... ] }
+chat_histories = defaultdict(list)
+
+# 5. Discord Botのセットアップ
 intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
@@ -91,7 +96,7 @@ async def on_message(message):
         if message.author == bot.user:
             return
 
-        # 条件チェック：
+        # 条件チェック
         is_mentioned = bot.user.mentioned_in(message)
         
         is_reply = False
@@ -113,7 +118,8 @@ async def on_message(message):
             return
 
         # チャンネル判定
-        is_otameshi = (str(message.channel.id) == OTAMESHI_CHANNEL_ID)
+        channel_id = str(message.channel.id)
+        is_otameshi = (channel_id == OTAMESHI_CHANNEL_ID)
 
         if is_otameshi:
             # 70%の確率で応答（30%はスルー）
@@ -129,28 +135,42 @@ async def on_message(message):
         else:
             current_instruction = SYSTEM_INSTRUCTION + "\n\n※【追加命令】しっかりとした長文で詳しく返答してください。"
 
-        # Discordのタイピング中表示を出す
+        # タイピング中表示
         async with message.channel.typing():
             print(f"[Gemini API呼び出し] ユーザー: {message.author} からのメッセージを処理中...")
-            response = client.models.generate_content(
+            
+            # 該当チャンネルの過去履歴を取得
+            history = chat_histories[channel_id]
+
+            # Chatセッションの作成（会話履歴＋システムプロンプトを統合）
+            chat = client.chats.create(
                 model='gemini-3.1-flash-lite',
-                contents=user_message,
+                history=history,
                 config=types.GenerateContentConfig(
                     system_instruction=current_instruction,
                     temperature=1.0,
-                ),
+                )
             )
+
+            # メッセージの送信＆返答取得
+            response = chat.send_message(user_message)
             reply_text = response.text
+
             if reply_text:
                 await message.reply(reply_text)
                 print(f"[送信成功] 返答を送信しました: {reply_text[:30]}...")
-            
+
+                # 直近20件（メッセージ単位: ユーザー発言10件 ＋ Bot返答10件 = 計20要素）に制限して保持
+                updated_history = chat.get_history()
+                if len(updated_history) > 20:
+                    updated_history = updated_history[-20:]
+                chat_histories[channel_id] = updated_history
+
     except Exception as e:
-        # エラーが発生した場合は、MWSのログに詳細（トレースバック）を出力する
         print(f"❌ エラーが発生しました: {e}")
         traceback.print_exc()
 
-# 5. 実行
+# 6. 実行
 if __name__ == "__main__":
     keep_alive()
     TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
