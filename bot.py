@@ -1,6 +1,7 @@
 import os
 import asyncio
 import random
+import traceback
 from flask import Flask
 from threading import Thread
 import discord
@@ -53,7 +54,7 @@ SYSTEM_INSTRUCTION = """
 - **特定の返答パターン:** 
   - 「オカズにしていい？」等と聞かれた場合は、**「俺でヌこうとしてんのか...」「そういうのは、勝手にすればいいんだよなぁw」「勝手にシろw」**のニュアンスを含めて返す。
 - **語尾・口癖・言い換え:** 
-  - 語尾に「w」をよくつける（例：「ふうw」「〜だぜ」「〜すぎゆ」）。
+  - 語尾に「w»をよくつける（例：「ふうw」「〜だぜ」「〜すぎゆ」）。
   - 「〜だから」は基本的に「〜だから」「〜やけん」だが、たまに「〜じゃけ」と言う。
   - 「〜でさぁ」は「〜でさあ」にする。
   - 「です」はふ（例：「でふ」）。
@@ -65,7 +66,7 @@ SYSTEM_INSTRUCTION = """
   - 不貞腐れたり絶望したときは「ちんぽが萎えた」などと言う。
   - 下ネタやチンコの話題では「おちんちん」「おちんぽ」「ちんぽ」を使う。
 - **記号・ハート:** 
-  - ハートをつけるときは基本は語尾に「〜でふ💕💕」とする。
+  - ハートをつけるときは基本は語尾に「〜ふ💕💕」とする。
 
 ## 出力のトーン
 - 中3男子らしい少し雑なノリ、ネットスラングや下ネタを交えつつ、自然な日本語で返答すること。
@@ -76,8 +77,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
 
-# お試しチャンネルID
-OTAMESHI_CHANNEL_ID = 1564984415636037672
+# お試しチャンネルID（文字列）
+OTAMESHI_CHANNEL_ID = "1564984415636037672"
 
 @bot.event
 async def on_ready():
@@ -85,51 +86,52 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    # ボット自身のメッセージには反応しない
-    if message.author == bot.user:
-        return
-
-    # 条件チェック：
-    # 1. ボットがメンションされているか？
-    # 2. メッセージへの返信（Reply）で、対象がこのボットか？
-    # 3. メッセージの中に「さねす」という単語が含まれているか？
-    is_mentioned = bot.user.mentioned_in(message)
-    is_reply = (message.reference is not None and message.reference.resolved and message.reference.resolved.author == bot.user)
-    has_keyword = "さねす" in message.content
-
-    if not (is_mentioned or is_reply or has_keyword):
-        return
-
-    # メンションされている場合はメンション部分を除去、キーワード・返信の場合はそのまま使用
-    if is_mentioned:
-        user_message = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
-    else:
-        user_message = message.content.strip()
-    
-    if not user_message:
-        return
-
-    # チャンネル判定とパラメータ制御
-    is_otameshi = (message.channel.id == OTAMESHI_CHANNEL_ID)
-
-    if is_otameshi:
-        # お試しチャンネル：70%の確率で応答（30%はスルー）
-        if random.random() > 0.70:
+    try:
+        # ボット自身のメッセージには反応しない
+        if message.author == bot.user:
             return
-        
-        # 15秒遅延
-        await asyncio.sleep(15)
-        
-        # 短文指定（1〜3行）を指示に追加
-        current_instruction = SYSTEM_INSTRUCTION + "\n\n※【追加命令】返答は必ず1〜3行以内の短文にしてください。"
-    else:
-        # 通常チャンネル：長文指定を指示に追加
-        current_instruction = SYSTEM_INSTRUCTION + "\n\n※【追加命令】しっかりとした長文で詳しく返答してください。"
 
-    # Discordのタイピング中表示を出す
-    async with message.channel.typing():
-        try:
-            # Gemini API (gemini-3.1-flash-lite) を呼び出し
+        # 条件チェック：
+        is_mentioned = bot.user.mentioned_in(message)
+        
+        is_reply = False
+        if message.reference and message.reference.resolved:
+            if hasattr(message.reference.resolved, 'author'):
+                is_reply = (message.reference.resolved.author == bot.user)
+
+        has_keyword = "さねす" in message.content
+
+        if not (is_mentioned or is_reply or has_keyword):
+            return
+
+        if is_mentioned:
+            user_message = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
+        else:
+            user_message = message.content.strip()
+        
+        if not user_message:
+            return
+
+        # チャンネル判定
+        is_otameshi = (str(message.channel.id) == OTAMESHI_CHANNEL_ID)
+
+        if is_otameshi:
+            # 70%の確率で応答（30%はスルー）
+            if random.random() > 0.70:
+                print(f"[お試しチャンネル] 確率抽選によりスルーしました (作者: {message.author})")
+                return
+            
+            # 15秒遅延
+            print(f"[お試しチャンネル] 15秒の遅延待機を開始します...")
+            await asyncio.sleep(15)
+            
+            current_instruction = SYSTEM_INSTRUCTION + "\n\n※【追加命令】返答は必ず1〜3行以内の短文にしてください。"
+        else:
+            current_instruction = SYSTEM_INSTRUCTION + "\n\n※【追加命令】しっかりとした長文で詳しく返答してください。"
+
+        # Discordのタイピング中表示を出す
+        async with message.channel.typing():
+            print(f"[Gemini API呼び出し] ユーザー: {message.author} からのメッセージを処理中...")
             response = client.models.generate_content(
                 model='gemini-3.1-flash-lite',
                 contents=user_message,
@@ -141,10 +143,12 @@ async def on_message(message):
             reply_text = response.text
             if reply_text:
                 await message.reply(reply_text)
+                print(f"[送信成功] 返答を送信しました: {reply_text[:30]}...")
             
-        except Exception:
-            # エラー発生時は何も出力・返信せず完全無視
-            pass
+    except Exception as e:
+        # エラーが発生した場合は、MWSのログに詳細（トレースバック）を出力する
+        print(f"❌ エラーが発生しました: {e}")
+        traceback.print_exc()
 
 # 5. 実行
 if __name__ == "__main__":
