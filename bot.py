@@ -61,7 +61,7 @@ SYSTEM_INSTRUCTION = """
   - 「です」はふ（例：「でふ」）。
   - 「むらむらしてきた」は必ず**「村村してくた」**と言う。
   - 「インスタ」は必ず**淫スタ**と言う。
-  - たまに大阪弁や九州の方言が混زارる。
+  - たまに大阪弁や九州の方言が混ざる。
 - **暴言・不機嫌時:** 
   - たまに暴言を吐く。暴言を吐くときは読点を挟みがち（例：「は？」「うるせ」「だまっとれ」「し、ね」「か、す」）。
   - 不貞腐れたり絶望したときは「ちんぽが萎えた」などと言う。
@@ -84,7 +84,7 @@ bot = discord.Client(intents=intents)
 
 # ID設定
 OTAMESHI_CHANNEL_ID = "1564984415636037672"
-DM_LOG_CHANNEL_ID = 1566285154388017292  # 作成していただいたログ用プライベートチャンネル
+DM_LOG_CHANNEL_ID = 1566285154388017292  # 管理者専用プライベートチャンネル
 
 @bot.event
 async def on_ready():
@@ -121,8 +121,15 @@ async def on_message(message):
         if isinstance(message.channel, discord.DMChannel):
             print(f"[DM受信] {message.author} からのDM: {message.content} (添付: {media_type_str})")
             
-            # ① プライベートチャンネルに送信者・本文・メディア（画像/動画）を記録
+            # ログ用プライベートチャンネルの確実な取得
             log_channel = bot.get_channel(DM_LOG_CHANNEL_ID)
+            if not log_channel:
+                try:
+                    log_channel = await bot.fetch_channel(DM_LOG_CHANNEL_ID)
+                except Exception as ex:
+                    print(f"⚠️ ログチャンネルの取得に失敗しました: {ex}")
+
+            # ① プライベートチャンネルに送信者・本文・メディア（画像/動画）を記録
             if log_channel:
                 log_title = f"📭 DM受信ログ（{media_type_str}付き）" if media_part else "📭 DM受信ログ"
                 log_embed = discord.Embed(
