@@ -61,7 +61,7 @@ SYSTEM_INSTRUCTION = """
   - 「です」はふ（例：「でふ」）。
   - 「むらむらしてきた」は必ず**「村村してくた」**と言う。
   - 「インスタ」は必ず**淫スタ**と言う。
-  - たまに大阪弁や九州の方言が混ざる。
+  - たまに大阪弁や九州の方言が混زارる。
 - **暴言・不機嫌時:** 
   - たまに暴言を吐く。暴言を吐くときは読点を挟みがち（例：「は？」「うるせ」「だまっとれ」「し、ね」「か、す」）。
   - 不貞腐れたり絶望したときは「ちんぽが萎えた」などと言う。
@@ -71,6 +71,7 @@ SYSTEM_INSTRUCTION = """
 
 ## 出力のトーン
 - 中3男子らしい少し雑なノリ、ネットスラングや下ネタを交えつつ、自然な日本語で返答すること。
+- 画像や動画が送信された場合は、中に何が写っているかやどんな内容かをしっかりと認識し、キャラクター設定や口調を維持したまま自然にコメントすること。
 """
 
 # 4. 会話履歴のメモリ管理（直近20件を保持）
@@ -96,23 +97,48 @@ async def on_message(message):
         if message.author == bot.user:
             return
 
+        # 添付ファイル（画像や動画）のチェック & 取得
+        media_part = None
+        media_url = None
+        media_type_str = ""
+        
+        if message.attachments:
+            for attachment in message.attachments:
+                content_type = attachment.content_type or ""
+                if "image" in content_type or "video" in content_type:
+                    media_bytes = await attachment.read()
+                    media_part = types.Part.from_bytes(
+                        data=media_bytes,
+                        mime_type=content_type
+                    )
+                    media_url = attachment.url
+                    media_type_str = "動画" if "video" in content_type else "画像"
+                    break
+
         # -------------------------------------------------------------
         # ★【DM（ダイレクトメッセージ）の場合の処理】
         # -------------------------------------------------------------
         if isinstance(message.channel, discord.DMChannel):
-            print(f"[DM受信] {message.author} からのDM: {message.content}")
+            print(f"[DM受信] {message.author} からのDM: {message.content} (添付: {media_type_str})")
             
-            # ① 作成したプライベートチャンネルに送信者と本文を記録
+            # ① プライベートチャンネルに送信者・本文・メディア（画像/動画）を記録
             log_channel = bot.get_channel(DM_LOG_CHANNEL_ID)
             if log_channel:
+                log_title = f"📭 DM受信ログ（{media_type_str}付き）" if media_part else "📭 DM受信ログ"
                 log_embed = discord.Embed(
-                    title="📭 DM受信ログ",
-                    description=f"**送信者:** {message.author.mention} (`{message.author}` / ID: `{message.author.id}`)\n**内容:**\n{message.content}",
+                    title=log_title,
+                    description=f"**送信者:** {message.author.mention} (`{message.author}` / ID: `{message.author.id}`)\n**内容:**\n{message.content if message.content else f'*({media_type_str}のみ)*'}",
                     color=0x3498db
                 )
+                if media_url:
+                    if media_type_str == "画像":
+                        log_embed.set_image(url=media_url)
+                    else:
+                        log_embed.add_field(name="動画リンク", value=f"[動画ファイルを開く]({media_url})", inline=False)
+
                 await log_channel.send(embed=log_embed)
 
-            # ② DM相手へさねすBotが返答する処理（履歴も保持）
+            # ② DM相手へさねすBotが返答する処理（マルチモーダル・履歴保持）
             user_id_str = f"dm_{message.author.id}"
             history = chat_histories[user_id_str]
 
@@ -126,14 +152,21 @@ async def on_message(message):
                     )
                 )
 
-                response = chat.send_message(f"{message.author.name}: {message.content}")
+                default_prompt = f"（ユーザーが{media_type_str}を送信しました。内容を見て反応してください）" if media_part else f"{message.author.name}: {message.content}"
+                prompt_text = message.content if message.content else default_prompt
+
+                contents_payload = [prompt_text]
+                if media_part:
+                    contents_payload.append(media_part)
+
+                response = chat.send_message(contents_payload)
                 reply_text = response.text
 
                 if reply_text:
                     await message.reply(reply_text)
                     print(f"[DM返答成功] {message.author} へ送信完了")
 
-                    # DM側も過去ログを転送チャンネルに一応記録（Botが何を返したか）
+                    # Botの返答もプライベートチャンネルに記録
                     if log_channel:
                         bot_log_embed = discord.Embed(
                             title="🤖 BotのDM返答",
@@ -162,7 +195,7 @@ async def on_message(message):
 
         has_keyword = "さねす" in message.content
 
-        if not (is_mentioned or is_reply or has_keyword):
+        if not (is_mentioned or is_reply or has_keyword or media_part):
             return
 
         if is_mentioned:
@@ -170,7 +203,7 @@ async def on_message(message):
         else:
             user_message = message.content.strip()
         
-        if not user_message:
+        if not user_message and not media_part:
             return
 
         # チャンネル判定
@@ -206,7 +239,14 @@ async def on_message(message):
                 )
             )
 
-            response = chat.send_message(f"{message.author.name}: {user_message}")
+            default_prompt = f"（ユーザーが{media_type_str}を送信しました。内容を見て反応してください）" if media_part else f"{message.author.name}: {user_message}"
+            prompt_text = user_message if user_message else default_prompt
+
+            contents_payload = [prompt_text]
+            if media_part:
+                contents_payload.append(media_part)
+
+            response = chat.send_message(contents_payload)
             reply_text = response.text
 
             if reply_text:
