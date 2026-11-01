@@ -63,7 +63,7 @@ SYSTEM_INSTRUCTION = """
   - 「インスタ」は必ず**淫スタ**と言う。
   - たまに大阪弁や九州の方言が混ざる。
 - **暴言・不機嫌時:** 
-  - たまに暴言を吐く。暴言を吐くときは読点を挟みがち（例：「は？」「うるせ」「だまっとれ」「し、ね」「か、す」）。
+  - たまに暴言を吐く。暴言を吐くときは読点を挟みがち（例：「は？」「うるせ」「だまっとれ」「し、ね」「か,す」）。
   - 不貞腐れたり絶望したときは「ちんぽが萎えた」などと言う。
   - 下ネタやチンコの話題では「おちんちん」「おちんぽ」「ちんぽ」を使う。
 - **記号・ハート:** 
@@ -73,8 +73,7 @@ SYSTEM_INSTRUCTION = """
 - 中3男子らしい少し雑なノリ、ネットスラングや下ネタを交えつつ、自然な日本語で返答すること。
 """
 
-# 4. 会話履歴のメモリ管理（チャンネルごとに直近20件＝10往復分を保持）
-# 構造: { channel_id: [ {"role": "user", "parts": [...]}, {"role": "model", "parts": [...]}, ... ] }
+# 4. 会話履歴のメモリ管理（チャンネルごとに直近20件を保持）
 chat_histories = defaultdict(list)
 
 # 5. Discord Botのセットアップ
@@ -92,7 +91,7 @@ async def on_ready():
 @bot.event
 async def on_message(message):
     try:
-        # ボット自身のメッセージには反応しない
+        # ★自分自身のメッセージだけに反応しない（他のボットやユーザーのメッセージには反応する）
         if message.author == bot.user:
             return
 
@@ -124,11 +123,11 @@ async def on_message(message):
         if is_otameshi:
             # 70%の確率で応答（30%はスルー）
             if random.random() > 0.70:
-                print(f"[お試しチャンネル] 確率抽選によりスルーしました (作者: {message.author})")
+                print(f"[お試しチャンネル] 確率抽選によりスルーしました (発言者: {message.author})")
                 return
             
             # 15秒遅延
-            print(f"[お試しチャンネル] 15秒の遅延待機を開始します...")
+            print(f"[お試しチャンネル] 15秒の遅延待機を開始します (発言者: {message.author})")
             await asyncio.sleep(15)
             
             current_instruction = SYSTEM_INSTRUCTION + "\n\n※【追加命令】返答は必ず1〜3行以内の短文にしてください。"
@@ -137,12 +136,12 @@ async def on_message(message):
 
         # タイピング中表示
         async with message.channel.typing():
-            print(f"[Gemini API呼び出し] ユーザー: {message.author} からのメッセージを処理中...")
+            print(f"[Gemini API呼び出し] 発言者: {message.author} (Bot判定: {message.author.bot}) からのメッセージを処理中...")
             
             # 該当チャンネルの過去履歴を取得
             history = chat_histories[channel_id]
 
-            # Chatセッションの作成（会話履歴＋システムプロンプトを統合）
+            # Chatセッションの作成
             chat = client.chats.create(
                 model='gemini-3.1-flash-lite',
                 history=history,
@@ -152,15 +151,15 @@ async def on_message(message):
                 )
             )
 
-            # メッセージの送信＆返答取得
-            response = chat.send_message(user_message)
+            # メッセージ送信＆返答取得
+            response = chat.send_message(f"{message.author.name}: {user_message}")
             reply_text = response.text
 
             if reply_text:
                 await message.reply(reply_text)
                 print(f"[送信成功] 返答を送信しました: {reply_text[:30]}...")
 
-                # 直近20件（メッセージ単位: ユーザー発言10件 ＋ Bot返答10件 = 計20要素）に制限して保持
+                # 直近20件に制限して保持
                 updated_history = chat.get_history()
                 if len(updated_history) > 20:
                     updated_history = updated_history[-20:]
