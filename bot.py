@@ -1,5 +1,6 @@
 import os
 import asyncio
+import random
 from flask import Flask
 from threading import Thread
 import discord
@@ -75,6 +76,9 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
 
+# お試しチャンネルID
+OTAMESHI_CHANNEL_ID = 1564984415636037672
+
 @bot.event
 async def on_ready():
     print(f'ログイン成功: {bot.user} (さねすくん起動完了でふw)')
@@ -87,14 +91,16 @@ async def on_message(message):
 
     # 条件チェック：
     # 1. ボットがメンションされているか？
-    # 2. メッセージの中に「さねす」という単語が含まれているか？
+    # 2. メッセージへの返信（Reply）で、対象がこのボットか？
+    # 3. メッセージの中に「さねす」という単語が含まれているか？
     is_mentioned = bot.user.mentioned_in(message)
+    is_reply = (message.reference is not None and message.reference.resolved and message.reference.resolved.author == bot.user)
     has_keyword = "さねす" in message.content
 
-    if not (is_mentioned or has_keyword):
+    if not (is_mentioned or is_reply or has_keyword):
         return
 
-    # メンションされている場合はメンション部分を除去、キーワードのみの場合はそのまま使用
+    # メンションされている場合はメンション部分を除去、キーワード・返信の場合はそのまま使用
     if is_mentioned:
         user_message = message.content.replace(f'<@!{bot.user.id}>', '').replace(f'<@{bot.user.id}>', '').strip()
     else:
@@ -103,24 +109,42 @@ async def on_message(message):
     if not user_message:
         return
 
+    # チャンネル判定とパラメータ制御
+    is_otameshi = (message.channel.id == OTAMESHI_CHANNEL_ID)
+
+    if is_otameshi:
+        # お試しチャンネル：70%の確率で応答（30%はスルー）
+        if random.random() > 0.70:
+            return
+        
+        # 15秒遅延
+        await asyncio.sleep(15)
+        
+        # 短文指定（1〜3行）を指示に追加
+        current_instruction = SYSTEM_INSTRUCTION + "\n\n※【追加命令】返答は必ず1〜3行以内の短文にしてください。"
+    else:
+        # 通常チャンネル：長文指定を指示に追加
+        current_instruction = SYSTEM_INSTRUCTION + "\n\n※【追加命令】しっかりとした長文で詳しく返答してください。"
+
     # Discordのタイピング中表示を出す
     async with message.channel.typing():
         try:
-            # Gemini API (gemini-3.8-flash) を呼び出し
+            # Gemini API (gemini-3.1-flash-lite) を呼び出し
             response = client.models.generate_content(
-                model='gemini-3.8-flash',
+                model='gemini-3.1-flash-lite',
                 contents=user_message,
                 config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
+                    system_instruction=current_instruction,
                     temperature=1.0,
                 ),
             )
             reply_text = response.text
-            await message.reply(reply_text)
+            if reply_text:
+                await message.reply(reply_text)
             
-        except Exception as e:
-            print(f"エラー発生: {e}")
-            await message.reply("ふうwなんかエラー出てまふ")
+        except Exception:
+            # エラー発生時は何も出力・返信せず完全無視
+            pass
 
 # 5. 実行
 if __name__ == "__main__":
