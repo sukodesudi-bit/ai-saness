@@ -63,7 +63,7 @@ SYSTEM_INSTRUCTION = """
   - 「インスタ」は必ず**淫スタ**と言う。
   - たまに大阪弁や九州の方言が混ざる。
 - **暴言・不機嫌時:** 
-  - たまに暴言を吐く。暴言を吐くときは読点を挟みがち（例：「は？」「うるせ」「だまっとれ」「し、ね」「か,す」）。
+  - たまに暴言を吐く。暴言を吐くときは読点を挟みがち（例：「は？」「うるせ」「だまっとれ」「し、ね」「か、す」）。
   - 不貞腐れたり絶望したときは「ちんぽが萎えた」などと言う。
   - 下ネタやチンコの話題では「おちんちん」「おちんぽ」「ちんぽ」を使う。
 - **記号・ハート:** 
@@ -73,7 +73,7 @@ SYSTEM_INSTRUCTION = """
 - 中3男子らしい少し雑なノリ、ネットスラングや下ネタを交えつつ、自然な日本語で返答すること。
 """
 
-# 4. 会話履歴のメモリ管理（チャンネルごとに直近20件を保持）
+# 4. 会話履歴のメモリ管理（直近20件を保持）
 chat_histories = defaultdict(list)
 
 # 5. Discord Botのセットアップ
@@ -81,8 +81,9 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
 
-# お試しチャンネルID（文字列）
+# ID設定
 OTAMESHI_CHANNEL_ID = "1564984415636037672"
+DM_LOG_CHANNEL_ID = 1566285154388017292  # 作成していただいたログ用プライベートチャンネル
 
 @bot.event
 async def on_ready():
@@ -91,11 +92,67 @@ async def on_ready():
 @bot.event
 async def on_message(message):
     try:
-        # ★自分自身のメッセージだけに反応しない（他のボットやユーザーのメッセージには反応する）
+        # 自分自身のメッセージには反応しない
         if message.author == bot.user:
             return
 
-        # 条件チェック
+        # -------------------------------------------------------------
+        # ★【DM（ダイレクトメッセージ）の場合の処理】
+        # -------------------------------------------------------------
+        if isinstance(message.channel, discord.DMChannel):
+            print(f"[DM受信] {message.author} からのDM: {message.content}")
+            
+            # ① 作成したプライベートチャンネルに送信者と本文を記録
+            log_channel = bot.get_channel(DM_LOG_CHANNEL_ID)
+            if log_channel:
+                log_embed = discord.Embed(
+                    title="📭 DM受信ログ",
+                    description=f"**送信者:** {message.author.mention} (`{message.author}` / ID: `{message.author.id}`)\n**内容:**\n{message.content}",
+                    color=0x3498db
+                )
+                await log_channel.send(embed=log_embed)
+
+            # ② DM相手へさねすBotが返答する処理（履歴も保持）
+            user_id_str = f"dm_{message.author.id}"
+            history = chat_histories[user_id_str]
+
+            async with message.channel.typing():
+                chat = client.chats.create(
+                    model='gemini-3.1-flash-lite',
+                    history=history,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION + "\n\n※【追加命令】しっかりとした長文で詳しく返答してください。",
+                        temperature=1.0,
+                    )
+                )
+
+                response = chat.send_message(f"{message.author.name}: {message.content}")
+                reply_text = response.text
+
+                if reply_text:
+                    await message.reply(reply_text)
+                    print(f"[DM返答成功] {message.author} へ送信完了")
+
+                    # DM側も過去ログを転送チャンネルに一応記録（Botが何を返したか）
+                    if log_channel:
+                        bot_log_embed = discord.Embed(
+                            title="🤖 BotのDM返答",
+                            description=f"**宛先:** {message.author.mention}\n**返答内容:**\n{reply_text}",
+                            color=0x2ecc71
+                        )
+                        await log_channel.send(embed=bot_log_embed)
+
+                    # 履歴の保存（直近20件）
+                    updated_history = chat.get_history()
+                    if len(updated_history) > 20:
+                        updated_history = updated_history[-20:]
+                    chat_histories[user_id_str] = updated_history
+            
+            return  # DM処理はここで完了
+
+        # -------------------------------------------------------------
+        # ★【サーバー内チャンネルの場合の処理（通常動作）】
+        # -------------------------------------------------------------
         is_mentioned = bot.user.mentioned_in(message)
         
         is_reply = False
@@ -136,12 +193,10 @@ async def on_message(message):
 
         # タイピング中表示
         async with message.channel.typing():
-            print(f"[Gemini API呼び出し] 発言者: {message.author} (Bot判定: {message.author.bot}) からのメッセージを処理中...")
+            print(f"[Gemini API呼び出し] 発言者: {message.author} からのメッセージを処理中...")
             
-            # 該当チャンネルの過去履歴を取得
             history = chat_histories[channel_id]
 
-            # Chatセッションの作成
             chat = client.chats.create(
                 model='gemini-3.1-flash-lite',
                 history=history,
@@ -151,7 +206,6 @@ async def on_message(message):
                 )
             )
 
-            # メッセージ送信＆返答取得
             response = chat.send_message(f"{message.author.name}: {user_message}")
             reply_text = response.text
 
@@ -159,7 +213,6 @@ async def on_message(message):
                 await message.reply(reply_text)
                 print(f"[送信成功] 返答を送信しました: {reply_text[:30]}...")
 
-                # 直近20件に制限して保持
                 updated_history = chat.get_history()
                 if len(updated_history) > 20:
                     updated_history = updated_history[-20:]
